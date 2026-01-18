@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 """
 自動コードレビューボット
-GitHub PRの差分をClaude APIでレビューし、結果をPRコメントとして投稿する
+GitHub PRの差分をGroq API（Llama）でレビューし、結果をPRコメントとして投稿する
 """
 
 import os
 import sys
-import json
 import subprocess
-from anthropic import Anthropic
+from groq import Groq
 
 # レビュー対象のファイル拡張子
 CODE_EXTENSIONS = {
@@ -79,7 +78,6 @@ def get_pr_diff() -> str:
 def filter_diff(diff: str) -> str:
     """コードファイルのみをフィルタリングする"""
     filtered_lines = []
-    current_file = None
     include_file = False
 
     for line in diff.split('\n'):
@@ -98,7 +96,6 @@ def filter_diff(diff: str) -> str:
                 is_code = ext.lower() in CODE_EXTENSIONS
 
                 include_file = is_code and not is_excluded
-                current_file = file_path
 
         if include_file:
             filtered_lines.append(line)
@@ -107,34 +104,35 @@ def filter_diff(diff: str) -> str:
 
 
 def review_code(diff: str) -> str:
-    """Claude APIでコードをレビューする"""
-    api_key = os.environ.get('ANTHROPIC_API_KEY')
+    """Groq API（Llama）でコードをレビューする"""
+    api_key = os.environ.get('GROQ_API_KEY')
     if not api_key:
-        raise ValueError("ANTHROPIC_API_KEY environment variable is not set")
+        raise ValueError("GROQ_API_KEY environment variable is not set")
 
-    client = Anthropic(api_key=api_key)
+    client = Groq(api_key=api_key)
 
-    # 差分が大きすぎる場合は警告
-    if len(diff) > 100000:
-        diff = diff[:100000] + "\n\n... (差分が大きいため一部省略されました)"
+    # 差分が大きすぎる場合は警告（Llamaのコンテキスト制限を考慮）
+    if len(diff) > 30000:
+        diff = diff[:30000] + "\n\n... (差分が大きいため一部省略されました)"
 
-    message = client.messages.create(
-        model="claude-sonnet-4-20250514",
-        max_tokens=4096,
+    response = client.chat.completions.create(
+        model="llama-3.3-70b-versatile",
         messages=[
             {
                 "role": "user",
                 "content": REVIEW_PROMPT + diff
             }
-        ]
+        ],
+        max_tokens=4096,
+        temperature=0.3,
     )
 
-    return message.content[0].text
+    return response.choices[0].message.content
 
 
 def post_comment(review: str) -> None:
     """PRにコメントを投稿する"""
-    comment = f"## 🤖 自動コードレビュー\n\n{review}\n\n---\n*このレビューはClaude AIによって自動生成されました*"
+    comment = f"## 🤖 自動コードレビュー\n\n{review}\n\n---\n*このレビューはLlama 3.3（Groq）によって自動生成されました*"
 
     subprocess.run(
         ['gh', 'pr', 'comment', '--body', comment],
@@ -158,7 +156,7 @@ def main():
         return
 
     print(f"📝 フィルタ後の差分: {len(filtered_diff)} 文字")
-    print("🤖 Claude APIでレビュー中...")
+    print("🤖 Groq API（Llama）でレビュー中...")
     review = review_code(filtered_diff)
 
     print("💬 PRにコメントを投稿中...")
