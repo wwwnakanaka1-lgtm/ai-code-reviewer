@@ -6,8 +6,32 @@ GitHub PRの差分をGroq API（Llama）でレビューし、結果をPRコメ�
 
 import os
 import sys
+import json
 import subprocess
 from groq import Groq
+
+
+def get_pr_number() -> str:
+    """GitHub Actions環境からPR番号を取得する"""
+    # GITHUB_EVENT_PATHからPR番号を取得
+    event_path = os.environ.get('GITHUB_EVENT_PATH')
+    if event_path and os.path.exists(event_path):
+        with open(event_path, 'r') as f:
+            event = json.load(f)
+            if 'pull_request' in event:
+                return str(event['pull_request']['number'])
+            if 'number' in event:
+                return str(event['number'])
+
+    # GITHUB_REFから取得を試みる (refs/pull/123/merge)
+    ref = os.environ.get('GITHUB_REF', '')
+    if '/pull/' in ref:
+        parts = ref.split('/')
+        for i, part in enumerate(parts):
+            if part == 'pull' and i + 1 < len(parts):
+                return parts[i + 1]
+
+    raise ValueError("PR番号を取得できませんでした")
 
 # レビュー対象のファイル拡張子
 CODE_EXTENSIONS = {
@@ -64,10 +88,10 @@ REVIEW_PROMPT = """あなたは経験豊富なシニアソフトウェアエン�
 """
 
 
-def get_pr_diff() -> str:
+def get_pr_diff(pr_number: str) -> str:
     """PRの差分を取得する"""
     result = subprocess.run(
-        ['gh', 'pr', 'diff'],
+        ['gh', 'pr', 'diff', pr_number],
         capture_output=True,
         text=True,
         check=True
@@ -130,19 +154,23 @@ def review_code(diff: str) -> str:
     return response.choices[0].message.content
 
 
-def post_comment(review: str) -> None:
+def post_comment(pr_number: str, review: str) -> None:
     """PRにコメントを投稿する"""
     comment = f"## 🤖 自動コードレビュー\n\n{review}\n\n---\n*このレビューはLlama 3.3（Groq）によって自動生成されました*"
 
     subprocess.run(
-        ['gh', 'pr', 'comment', '--body', comment],
+        ['gh', 'pr', 'comment', pr_number, '--body', comment],
         check=True
     )
 
 
 def main():
+    print("🔢 PR番号を取得中...")
+    pr_number = get_pr_number()
+    print(f"   PR #{pr_number}")
+
     print("📥 PRの差分を取得中...")
-    diff = get_pr_diff()
+    diff = get_pr_diff(pr_number)
 
     if not diff.strip():
         print("⚠️ 差分がありません")
@@ -160,7 +188,7 @@ def main():
     review = review_code(filtered_diff)
 
     print("💬 PRにコメントを投稿中...")
-    post_comment(review)
+    post_comment(pr_number, review)
 
     print("✅ レビュー完了!")
 
