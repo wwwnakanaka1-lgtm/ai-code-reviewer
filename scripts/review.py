@@ -100,12 +100,15 @@ def get_pr_diff(pr_number: str) -> str:
     if repo:
         cmd.extend(['--repo', repo])
 
+    print(f"   実行コマンド: {' '.join(cmd)}")
     result = subprocess.run(
         cmd,
         capture_output=True,
         text=True,
-        check=True
     )
+    if result.returncode != 0:
+        print(f"   stderr: {result.stderr}")
+        raise subprocess.CalledProcessError(result.returncode, cmd)
     return result.stdout
 
 
