@@ -96,20 +96,40 @@ def get_repo() -> str:
 def get_pr_diff(pr_number: str) -> str:
     """PRの差分を取得する"""
     repo = get_repo()
+
+    # まずgh pr diffを試す
     cmd = ['gh', 'pr', 'diff', pr_number]
     if repo:
         cmd.extend(['--repo', repo])
 
     print(f"   実行コマンド: {' '.join(cmd)}")
-    result = subprocess.run(
-        cmd,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        print(f"   stderr: {result.stderr}")
-        raise subprocess.CalledProcessError(result.returncode, cmd)
-    return result.stdout
+    result = subprocess.run(cmd, capture_output=True, text=True)
+
+    if result.returncode == 0:
+        return result.stdout
+
+    # 差分が大きすぎる場合はgit diffを使用
+    if 'too_large' in result.stderr or '406' in result.stderr:
+        print("   ⚠️ PRが大きすぎるためgit diffを使用します")
+
+        # PRのベースブランチを取得
+        pr_info_cmd = ['gh', 'pr', 'view', pr_number, '--json', 'baseRefName,headRefName']
+        if repo:
+            pr_info_cmd.extend(['--repo', repo])
+
+        pr_info_result = subprocess.run(pr_info_cmd, capture_output=True, text=True, check=True)
+        pr_info = json.loads(pr_info_result.stdout)
+        base = pr_info['baseRefName']
+        head = pr_info['headRefName']
+
+        # git diffで差分を取得
+        diff_cmd = ['git', 'diff', f'origin/{base}...origin/{head}']
+        print(f"   実行コマンド: {' '.join(diff_cmd)}")
+        diff_result = subprocess.run(diff_cmd, capture_output=True, text=True, check=True)
+        return diff_result.stdout
+
+    print(f"   stderr: {result.stderr}")
+    raise subprocess.CalledProcessError(result.returncode, cmd)
 
 
 def filter_diff(diff: str) -> str:
