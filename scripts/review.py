@@ -88,10 +88,20 @@ REVIEW_PROMPT = """あなたは経験豊富なシニアソフトウェアエン�
 """
 
 
+def get_repo() -> str:
+    """リポジトリ名を取得する (owner/repo形式)"""
+    return os.environ.get('GITHUB_REPOSITORY', '')
+
+
 def get_pr_diff(pr_number: str) -> str:
     """PRの差分を取得する"""
+    repo = get_repo()
+    cmd = ['gh', 'pr', 'diff', pr_number]
+    if repo:
+        cmd.extend(['--repo', repo])
+
     result = subprocess.run(
-        ['gh', 'pr', 'diff', pr_number],
+        cmd,
         capture_output=True,
         text=True,
         check=True
@@ -158,10 +168,12 @@ def post_comment(pr_number: str, review: str) -> None:
     """PRにコメントを投稿する"""
     comment = f"## 🤖 自動コードレビュー\n\n{review}\n\n---\n*このレビューはLlama 3.3（Groq）によって自動生成されました*"
 
-    subprocess.run(
-        ['gh', 'pr', 'comment', pr_number, '--body', comment],
-        check=True
-    )
+    repo = get_repo()
+    cmd = ['gh', 'pr', 'comment', pr_number, '--body', comment]
+    if repo:
+        cmd.extend(['--repo', repo])
+
+    subprocess.run(cmd, check=True)
 
 
 def main():
